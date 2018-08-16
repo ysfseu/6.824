@@ -285,10 +285,50 @@ func (rf *Raft) isUpToDate(cIndex int, cTerm int) bool {
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	if !ok {
+		return ok
+	}
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.status != Candidate || rf.currentTerm != args.term {
+		return ok
+	}
+	if reply.term > rf.currentTerm {
+		rf.currentTerm = reply.term
+		rf.status = Follower
+		rf.votedFor = -1
+		rf.persist()
+		return ok
+	}
+	if reply.voteGranted {
+		rf.voteCount++
+		if rf.voteCount > len(rf.peers) /2 {
+			rf.status = Leader
+			rf.electWin <- true
+		}
+	}
 	return ok
 }
 
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArg, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
 
+func (rf *Raft) selectLeader() {
+	rf.mu.Lock()
+	args := &RequestVoteArgs{}
+	args.term = rf.currentTerm
+	args.candidateId = rf.me
+	args.lastLogIndex = rf.getLastIndex()
+	args.lastLogTerm = rf.getLastTerm()
+	defer rf.mu.Unlock()
+	for server := range rf.peers {
+		if server != rf.me && rf.status ==Candidate {
+			go rf.sendRequestVote(server,args,&RequestVoteReply{})
+		}
+	}
+}
 //
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
