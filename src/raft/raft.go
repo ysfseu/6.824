@@ -190,26 +190,49 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArg, reply *AppendEntriesReply)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	defer rf.persist()
+	reply.Success = false
 	if rf.currentTerm > args.term {
-		reply.Success = false
 		reply.Term = rf.currentTerm
 		reply.nextTryIndex =rf.getLastIndex() +1
 		return
 	}
+
+	if rf.currentTerm < args.term {
+		rf.currentTerm = args.term
+		rf.status = Follower
+		rf.votedFor = -1
+	}
+
+	reply.Term = args.term
+
 	if rf.getLastIndex() < args.prevLogIndex  {
-		reply.Success = false
-		reply.Term = rf.currentTerm
 		reply.nextTryIndex =rf.getLastIndex() + 1
 		return
 	}
-	if rf.logs[args.prevLogIndex].Term != args.prevLogTerm {
-		term := rf.logs[args.prevLogIndex].Term
-		for reply.nextTryIndex = args.prevLogIndex -1; reply.nextTryIndex > 0 && rf.logs[reply.nextTryIndex].Term == term;
-		 reply.nextTryIndex--{
-
+	if rf.getLastTerm() != args.prevLogTerm {
+		term := rf.getLastTerm()
+		for reply.nextTryIndex = args.prevLogIndex -1; reply.nextTryIndex > 0; reply.nextTryIndex--{
+			if rf.logs[reply.nextTryIndex].Term != term {
+				break
+			}
 		}
 		reply.nextTryIndex++
+		return
 	}
+	rf.logs = rf.logs[:args.prevLogIndex+1]
+	rf.logs = append(rf.logs, args.entries...)
+	reply.Success = true
+	reply.nextTryIndex = rf.getLastTerm()+1
+	if args.leaderCommit > rf.commitIndex {
+		last := rf.getLastIndex()
+		if args.leaderCommit > last {
+			rf.commitIndex = last
+		} else {
+			rf.commitIndex = args.leaderCommit
+		}
+	}
+	return
+
 
 }
 func (rf *Raft) getLastIndex() int {
@@ -312,6 +335,35 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArg, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	if !ok {
+		return ok
+	}
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	defer rf.persist()
+	if ok {
+		if rf.status != Leader {
+			return ok
+		}
+		if args.term != rf.currentTerm {
+			return ok
+		}
+		if reply.Term > rf.currentTerm {
+			rf.currentTerm = reply.Term
+			rf.status = Follower
+			rf.votedFor = -1
+			rf.persist()
+			return ok
+		}
+		if reply.Success {
+			if len(args.entries) > 0 {
+				rf.nextIndex[server] = reply.nextTryIndex
+				rf.matchIndex[server] = rf.nextIndex[server] - 1
+			}
+		} else {
+			rf.nextIndex[server] = reply.nextTryIndex
+		}
+	}
 	return ok
 }
 
