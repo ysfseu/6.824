@@ -208,6 +208,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArg, reply *AppendEntriesReply)
 	}
 	rf.logs = rf.logs[:args.PrevLogIndex+1]
 	rf.logs = append(rf.logs, args.Entries...)
+	if len(args.Entries) == 1 && args.Entries[0].Command == 106 {
+		fmt.Printf("server %d has commited entry %d\n",rf.me, rf.logs[rf.getLastIndex()].Command)
+	}
 	reply.Success = true
 	reply.NextTryIndex = rf.getLastIndex()+1
 	if args.LeaderCommit > rf.commitIndex {
@@ -400,7 +403,7 @@ func (rf *Raft) broadcastAppendEntries() {
 		if peer!= rf.me && rf.status == Leader {
 			args := &AppendEntriesArg{}
 			args.Term = rf.currentTerm
-			args.PrevLogIndex = rf.getLastIndex()
+			args.PrevLogIndex = rf.nextIndex[peer] - 1
 			args.PrevLogTerm = rf.getLastTerm()
 			args.LeaderCommit = rf.commitIndex
 			if args.PrevLogIndex >= 0 {
@@ -443,7 +446,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		index = rf.getLastIndex() + 1
 		rf.logs = append(rf.logs, LogEntry{Term: term, Command:command})
 		rf.persist()
-		fmt.Printf("%d add command succeeded.................................................\n", index)
+		//fmt.Printf("%d add command succeeded.................................................\n", index)
 	}
 
 	return index, term, isLeader
@@ -454,9 +457,6 @@ func (rf *Raft) commitLogs() {
 		case <- rf.commited:
 			rf.mu.Lock()
 			for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
-				if rf.currentTerm != rf.logs[i].Term {
-					break;
-				}
 				rf.applyCh <- ApplyMsg{CommandIndex: i,CommandValid:true, Command: rf.logs[i].Command}
 				rf.lastApplied = i
 			}

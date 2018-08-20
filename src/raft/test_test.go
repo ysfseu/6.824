@@ -306,7 +306,6 @@ func TestRejoin2B(t *testing.T) {
 	cfg.rafts[leader1].Start(102)
 	cfg.rafts[leader1].Start(103)
 	cfg.rafts[leader1].Start(104)
-
 	// new leader commits, also for index=2
 	cfg.one(103, 2, true)
 
@@ -346,7 +345,6 @@ func TestBackup2B(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		cfg.rafts[leader1].Start(rand.Int())
 	}
-
 	time.Sleep(RaftElectionTimeout / 2)
 
 	cfg.disconnect((leader1 + 0) % servers)
@@ -568,7 +566,7 @@ func TestPersist22C(t *testing.T) {
 		index++
 
 		leader1 := cfg.checkOneLeader()
-
+		fmt.Printf("iter %d leader is %d", iters, leader1)
 		cfg.disconnect((leader1 + 1) % servers)
 		cfg.disconnect((leader1 + 2) % servers)
 
@@ -594,6 +592,8 @@ func TestPersist22C(t *testing.T) {
 
 		cfg.connect((leader1 + 4) % servers)
 		cfg.connect((leader1 + 0) % servers)
+
+		fmt.Printf("iter %d finished", iters)
 	}
 
 	cfg.one(1000, servers, true)
