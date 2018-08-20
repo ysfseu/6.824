@@ -24,6 +24,7 @@ import (
 	"math/rand"
 	"bytes"
 	"labgob"
+	"fmt"
 )
 
 
@@ -378,6 +379,23 @@ func (rf *Raft) selectLeader() {
 func (rf *Raft) broadcastAppendEntries() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	N := rf.commitIndex
+	last := rf.getLastIndex()
+	for i := rf.commitIndex + 1; i <= last; i++ {
+		num := 1
+		for j := range rf.peers {
+			if j != rf.me && rf.matchIndex[j] >= i && rf.logs[i].Term == rf.currentTerm {
+				num++
+			}
+		}
+		if 2*num > len(rf.peers) {
+			N = i
+		}
+	}
+	if N != rf.commitIndex {
+		rf.commitIndex = N
+		rf.commited <- true
+	}
 	for peer := range rf.peers {
 		if peer!= rf.me && rf.status == Leader {
 			args := &AppendEntriesArg{}
@@ -391,6 +409,7 @@ func (rf *Raft) broadcastAppendEntries() {
 			if rf.nextIndex[peer] <= rf.getLastIndex() {
 				args.Entries = rf.logs[rf.nextIndex[peer]:]
 			}
+			//fmt.Printf("%d entries has been send\n", len(args.Entries))
 			go rf.sendAppendEntries(peer, args, &AppendEntriesReply{})
 		}
 	}
@@ -421,9 +440,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := rf.status == Leader
 	if isLeader {
 		term  = rf.currentTerm
+		index = rf.getLastIndex() + 1
 		rf.logs = append(rf.logs, LogEntry{Term: term, Command:command})
 		rf.persist()
-		//fmt.Printf("%d add command succeeded.................................................", rf.me)
+		fmt.Printf("%d add command succeeded.................................................\n", index)
 	}
 
 	return index, term, isLeader
@@ -437,7 +457,7 @@ func (rf *Raft) commitLogs() {
 				if rf.currentTerm != rf.logs[i].Term {
 					break;
 				}
-				rf.applyCh <- ApplyMsg{CommandIndex: i, Command: rf.logs[i].Command}
+				rf.applyCh <- ApplyMsg{CommandIndex: i,CommandValid:true, Command: rf.logs[i].Command}
 				rf.lastApplied = i
 			}
 			rf.mu.Unlock()
