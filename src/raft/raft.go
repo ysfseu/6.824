@@ -234,15 +234,6 @@ func (rf *Raft) getLastTerm() int {
 	return rf.logs[len(rf.logs) - 1].Term
 }
 
-func (rf *Raft) convertToFollower(term int) {
-	defer rf.persist()
-	DPrintf("Convert server(%v) state(%v=>follower) term(%v => %v)", rf.me,
-		rf.status, rf.currentTerm, term)
-	rf.status = Follower
-	rf.currentTerm = term
-	rf.votedFor = -1
-}
-
 //
 // example RequestVote RPC handler.
 //
