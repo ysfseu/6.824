@@ -89,6 +89,8 @@ type Raft struct {
 	granted chan bool
 	heartbeat chan bool
 	commited chan bool
+	lastIncludedIndex int
+	lastIncludedTerm int
 
 
 }
@@ -173,6 +175,19 @@ type AppendEntriesReply struct {
 	Term int
 	Success bool
 	NextTryIndex int
+}
+
+type InstallSnapShotArgs struct {
+	Term              int
+	LeaderId          int
+
+	LastIncludedIndex int
+	LastIncludedTerm  int
+	Data              []byte
+}
+
+type InstallSnapShotReply struct {
+	Term int
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArg, reply *AppendEntriesReply) {
@@ -266,6 +281,54 @@ func (rf *Raft) isUpToDate(cIndex int, cTerm int) bool {
 	}
 	return cIndex >= index
 }
+
+func (rf *Raft) InstallSnapshot(args *InstallSnapShotArgs, reply *InstallSnapShotReply) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	defer rf.persist()
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		return
+	}
+	rf.heartbeat <- true
+	if args.Term > rf.currentTerm {
+		rf.currentTerm = args.Term
+		rf.status = Follower
+		rf.votedFor = -1
+	}
+	reply.Term = args.Term
+	if args.LastIncludedIndex > rf.lastIncludedIndex   {
+		reply.NextTryIndex =rf.getLastIndex() + 1
+		return
+	}
+	if rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
+		term := rf.logs[args.PrevLogIndex].Term
+		for reply.NextTryIndex = args.PrevLogIndex -1; reply.NextTryIndex > 0; reply.NextTryIndex--{
+			if rf.logs[reply.NextTryIndex].Term != term {
+				break
+			}
+		}
+		reply.NextTryIndex++
+		return
+	}
+	rf.logs = rf.logs[:args.PrevLogIndex+1]
+	rf.logs = append(rf.logs, args.Entries...)
+	if len(args.Entries) == 1 && args.Entries[0].Command == 106 {
+		fmt.Printf("server %d has commited entry %d\n",rf.me, rf.logs[rf.getLastIndex()].Command)
+	}
+	reply.Success = true
+	reply.NextTryIndex = rf.getLastIndex()+1
+	if args.LeaderCommit > rf.commitIndex {
+		last := rf.getLastIndex()
+		if args.LeaderCommit > last {
+			rf.commitIndex = last
+		} else {
+			rf.commitIndex = args.LeaderCommit
+		}
+		rf.commited <- true;
+	}
+	return
+}
 //
 // example code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
@@ -356,6 +419,19 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArg, reply *App
 	return ok
 }
 
+func (rf *Raft) sendInstallSnapShot(server int, args *InstallSnapShotArgs, reply *InstallSnapShotReply) bool {
+	returnChan := make(chan bool)
+	go func() {
+		returnChan <- rf.peers[server].Call("Raft.InstallSnapShot", args, reply)
+	}()
+	select {
+	case ok := <-returnChan:
+		return ok
+	case <-time.After(time.Millisecond* 200):
+		return false;
+	}
+
+}
 func (rf *Raft) selectLeader() {
 	rf.mu.Lock()
 	args := &RequestVoteArgs{}
@@ -400,8 +476,40 @@ func (rf *Raft) broadcastAppendEntries() {
 			if args.PrevLogIndex >= 0 {
 				args.PrevLogTerm = rf.logs[args.PrevLogIndex].Term
 			}
+			/*
 			if rf.nextIndex[peer] <= rf.getLastIndex() {
 				args.Entries = rf.logs[rf.nextIndex[peer]:]
+			}*/
+			if args.PrevLogIndex < rf.lastIncludedIndex {
+				args := InstallSnapShotArgs{
+					Term: rf.currentTerm,
+					LeaderId: rf.me,
+					LastIncludedIndex: rf.lastIncludedIndex,
+					LastIncludedTerm: rf.lastIncludedTerm,
+					Data: rf.ReadSnapShotAppData(rf.persister.ReadSnapshot()),
+
+				}
+				reply := InstallSnapShotReply{}
+				//rf.DPrintf("leader %v sent installSnapshot %+v, to %v", rf.me, args, peerIndex)
+				//rf.mu.Unlock()
+				ok := rf.sendInstallSnapShot(peer, &args, &reply)
+				if ok {
+					rf.mu.Lock()
+					rf.onOtherTerm(reply.Term)
+					if rf.state != Leader {
+						rf.persist()
+						rf.DPrintf("leader %v become follower after InstallSnapShot response", rf.me)
+						rf.mu.Unlock()
+						return
+					} else {
+						rf.nextIndex[peerIndex] = rf.lastIncludedIndex + 1
+
+					}
+					rf.mu.Unlock()
+				}
+				constraint := 20
+				time.Sleep(time.Second / time.Duration(constraint))
+				continue
 			}
 			//fmt.Printf("%d entries has been send\n", len(args.Entries))
 			go rf.sendAppendEntries(peer, args, &AppendEntriesReply{})
@@ -549,6 +657,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.granted = make(chan bool)
 	rf.heartbeat = make(chan bool)
 	rf.commited = make(chan bool)
+	rf.lastIncludedIndex = 0
+	rf.lastIncludedTerm = 0
 	rf.logs = append(rf.logs, LogEntry{Term: 0})
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
