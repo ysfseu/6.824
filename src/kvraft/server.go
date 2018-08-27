@@ -7,7 +7,9 @@ import (
 	"raft"
 	"sync"
 	"time"
-	)
+	"bytes"
+	"encoding/gob"
+)
 
 const Debug = 0
 
@@ -117,7 +119,9 @@ func (kv *KVServer) apply() {
 		msg := <- kv.applyCh
 		op := msg.Command.(Op)
 		//fmt.Printf("begin applying %s \n", op.Type)
-
+		if msg.UseSnapshot {
+			kv.UseSnapShot(msg.SnapshotData)
+		}
 		kv.mu.Lock()
 		if op.Type != "Get" {
 			if seq, ok := kv.request[op.Cid]; !ok || op.Seq > seq {
@@ -131,16 +135,41 @@ func (kv *KVServer) apply() {
 			}
 		}
 		ch, ok := kv.result[msg.CommandIndex]
-
 		if ok {
 			ch <- op
 		}
+		kv.CheckSnapshot(msg.CommandIndex)
 		kv.mu.Unlock()
 		//fmt.Printf("Finish applying %s \n", op.Type)
 	}
 
 
 
+}
+func (kv *KVServer) UseSnapShot(snapshot []byte) {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	var LastIncludedIndex int
+	var LastIncludedTerm int
+	kv.store = make(map[string]string)
+	kv.request = make(map[int64]int)
+	r := bytes.NewBuffer(snapshot)
+	d := gob.NewDecoder(r)
+	d.Decode(&LastIncludedIndex)
+	d.Decode(&LastIncludedTerm)
+	d.Decode(&kv.store)
+	d.Decode(&kv.request)
+}
+func (kv * KVServer) CheckSnapshot(index int) {
+	if kv.maxraftstate != -1 && float64(kv.rf.GetPersistSize()) > float64(kv.maxraftstate)*0.8 {
+		w := new(bytes.Buffer)
+		e := gob.NewEncoder(w)
+		e.Encode(kv.store)
+		e.Encode(kv.request)
+		data := w.Bytes()
+		go kv.rf.StartSnapshot(data, index)
+	}
 }
 //
 // servers[] contains the ports of the set of
