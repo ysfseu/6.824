@@ -52,7 +52,7 @@ func (ck *Clerk) Get(key string) string {
 	for ; ;ck.leader=(ck.leader+1)%len(ck.servers) {
 		reply := GetReply{}
 		ok := ck.servers[ck.leader].Call("KVServer.Get", &args, &reply)
-		fmt.Printf("leader is %d request status is %t. Wrong Leader ? %t \n", ck.leader,ok,reply.WrongLeader)
+		//fmt.Printf("leader is %d request status is %t. Wrong Leader ? %t \n", ck.leader,ok,reply.WrongLeader)
 		if ok && !reply.WrongLeader {
 			if reply.Err == ErrNoKey {
 				return ""
@@ -80,14 +80,18 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	for ; ;ck.leader=(ck.leader+1)%len(ck.servers) {
 		reply := PutAppendReply{}
 		ok := ck.servers[ck.leader].Call("KVServer.PutAppend", &args, &reply)
+		if args.Key == "c" || args.Key == "d"{
+			fmt.Printf("leader %d is wrong leader? %t ok ? %t\n", ck.leader, reply.WrongLeader,ok)
+		}
 		if ok && !reply.WrongLeader {
 			return
 		}
 	}
 }
 
-func (ck *Clerk) Put(key string, value string) {
+func (ck *Clerk) Put(key string, value string){
 	ck.PutAppend(key, value, "Put")
+
 }
 func (ck *Clerk) Append(key string, value string) {
 	ck.PutAppend(key, value, "Append")

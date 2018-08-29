@@ -39,6 +39,7 @@ func Append(cfg *config, ck *Clerk, key string, value string) {
 
 func check(cfg *config, t *testing.T, ck *Clerk, key string, value string) {
 	v := Get(cfg, ck, key)
+	//fmt.Printf("--------------------------------------------------------------------------------------------\n")
 	if v != value {
 		t.Fatalf("Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
 	}
@@ -267,11 +268,9 @@ func GenericTest(t *testing.T, part string, nclients int, unreliable bool, crash
 			// 	log.Printf("Warning: client %d managed to perform only %d put operations in 1 sec?\n", i, j)
 			// }
 			key := strconv.Itoa(i)
-			log.Printf("Check %v for client %d\n", j, i)
+			//log.Printf("Check %v for client %d\n", j, i)
 			v := Get(cfg, ck, key)
-			fmt.Print("Get....................\n")
 			checkClntAppends(t, i, v, j)
-			fmt.Print("checkClntAppends....................\n")
 		}
 
 		if maxraftstate > 0 {
@@ -613,7 +612,6 @@ func TestSnapshotRPC3B(t *testing.T) {
 
 	Put(cfg, ck, "a", "A")
 	check(cfg, t, ck, "a", "A")
-
 	// a bunch of puts into the majority partition.
 	cfg.partition([]int{0, 1}, []int{2})
 	{
@@ -624,7 +622,6 @@ func TestSnapshotRPC3B(t *testing.T) {
 		time.Sleep(electionTimeout)
 		Put(cfg, ck1, "b", "B")
 	}
-
 	// check that the majority partition has thrown away
 	// most of its log entries.
 	if cfg.LogSize() > 2*maxraftstate {
@@ -637,6 +634,7 @@ func TestSnapshotRPC3B(t *testing.T) {
 	{
 		ck1 := cfg.makeClient([]int{0, 2})
 		Put(cfg, ck1, "c", "C")
+		fmt.Printf(".................................................................")
 		Put(cfg, ck1, "d", "D")
 		check(cfg, t, ck1, "a", "A")
 		check(cfg, t, ck1, "b", "B")

@@ -9,6 +9,7 @@ import (
 	"time"
 	"bytes"
 	"encoding/gob"
+	"fmt"
 )
 
 const Debug = 0
@@ -82,6 +83,9 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 }
 func (kv *KVServer) sendOpToLog(op Op) bool {
 	index, _, isLeader := kv.rf.Start(op)
+	if op.Key == "c" || op.Key == "d"{
+		fmt.Printf("is wrong leader? %t ok ?\n", !isLeader)
+	}
 	if !isLeader {
 		return false
 	}
@@ -100,6 +104,7 @@ func (kv *KVServer) sendOpToLog(op Op) bool {
 	case <-time.After(800 * time.Millisecond):
 		return false
 	}
+
 }
 
 
@@ -117,11 +122,13 @@ func (kv *KVServer) Kill() {
 func (kv *KVServer) apply() {
 	for {
 		msg := <- kv.applyCh
-		op := msg.Command.(Op)
-		//fmt.Printf("begin applying %s \n", op.Type)
 		if msg.UseSnapshot {
+			//fmt.Printf("begin applying %s \n", msg.SnapshotData)
 			kv.UseSnapShot(msg.SnapshotData)
+			return
 		}
+		op := msg.Command.(Op)
+		//fmt.Printf("Finish applying %s \n", op.Type)
 		kv.mu.Lock()
 		if op.Type != "Get" {
 			if seq, ok := kv.request[op.Cid]; !ok || op.Seq > seq {
@@ -140,7 +147,7 @@ func (kv *KVServer) apply() {
 		}
 		kv.CheckSnapshot(msg.CommandIndex)
 		kv.mu.Unlock()
-		//fmt.Printf("Finish applying %s \n", op.Type)
+
 	}
 
 

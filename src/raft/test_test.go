@@ -17,7 +17,7 @@ import "sync"
 
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
-const RaftElectionTimeout = 1000 * time.Millisecond
+const RaftElectionTimeout = 500 * time.Millisecond
 
 func TestInitialElection2A(t *testing.T) {
 	servers := 3
@@ -566,7 +566,7 @@ func TestPersist22C(t *testing.T) {
 		index++
 
 		leader1 := cfg.checkOneLeader()
-		fmt.Printf("iter %d leader is %d", iters, leader1)
+		fmt.Printf("iter %d leader is %d\n", iters, leader1)
 		cfg.disconnect((leader1 + 1) % servers)
 		cfg.disconnect((leader1 + 2) % servers)
 
@@ -593,7 +593,7 @@ func TestPersist22C(t *testing.T) {
 		cfg.connect((leader1 + 4) % servers)
 		cfg.connect((leader1 + 0) % servers)
 
-		fmt.Printf("iter %d finished", iters)
+		fmt.Printf("iter %d finished \n", iters)
 	}
 
 	cfg.one(1000, servers, true)
