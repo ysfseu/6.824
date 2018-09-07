@@ -97,11 +97,14 @@ func (kv *KVServer) sendOpToLog(op Op) bool {
 		kv.result[index] = ch
 	}
 	kv.mu.Unlock()
-
 	select {
 	case cmd := <-ch:
+		if op.Key == "c" || op.Key == "d"{
+			fmt.Printf("success? %t \n", cmd==op )
+		}
 		return cmd == op
 	case <-time.After(800 * time.Millisecond):
+		fmt.Printf("time out ......\n")
 		return false
 	}
 
@@ -122,14 +125,19 @@ func (kv *KVServer) Kill() {
 func (kv *KVServer) apply() {
 	for {
 		msg := <- kv.applyCh
+		fmt.Printf("get message success#############################\n");
 		if msg.UseSnapshot {
 			//fmt.Printf("begin applying %s \n", msg.SnapshotData)
+			fmt.Printf("snapshot ....................................\n")
 			kv.UseSnapShot(msg.SnapshotData)
-			return
+
+			continue
 		}
 		op := msg.Command.(Op)
+
 		//fmt.Printf("Finish applying %s \n", op.Type)
 		kv.mu.Lock()
+		fmt.Printf("index is %d in apply. ok? \n", msg.CommandIndex)
 		if op.Type != "Get" {
 			if seq, ok := kv.request[op.Cid]; !ok || op.Seq > seq {
 				if op.Type == "Put" {
@@ -142,6 +150,7 @@ func (kv *KVServer) apply() {
 			}
 		}
 		ch, ok := kv.result[msg.CommandIndex]
+
 		if ok {
 			ch <- op
 		}
